@@ -72,7 +72,7 @@ function ViewerContent() {
             };
 
             let offerProcessed = false;
-            const pollInterval = setInterval(async () => {
+            const pollForSignals = async () => {
                 try {
                     const pollRes = await fetch(`/api/signal?sessionId=${targetSessionId}&since=0&role=viewer`);
                     if (!pollRes.ok) return;
@@ -95,7 +95,11 @@ function ViewerContent() {
                         }
                     }
                 } catch { }
-            }, 1500);
+            };
+
+            // Check immediately, then every 400ms
+            pollForSignals();
+            const pollInterval = setInterval(pollForSignals, 400);
 
             (window as any).__viewCleanup = () => {
                 clearInterval(pollInterval);

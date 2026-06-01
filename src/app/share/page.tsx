@@ -124,8 +124,8 @@ export default function SharePage() {
 
             setStatus('connecting');
 
-            // Signaling Polling
-            const pollInterval = setInterval(async () => {
+            // Signaling Polling logic
+            const pollForSignals = async () => {
                 try {
                     const pollRes = await fetch(`/api/signal?sessionId=${newSessionId}&since=0&role=sharer`);
                     if (!pollRes.ok) return;
@@ -140,7 +140,11 @@ export default function SharePage() {
                         }
                     }
                 } catch { }
-            }, 1500);
+            };
+
+            // Run once immediately, then every interval
+            pollForSignals();
+            const pollInterval = setInterval(pollForSignals, 400);
 
             (window as any).__shareCleanup = () => {
                 clearInterval(pollInterval);
