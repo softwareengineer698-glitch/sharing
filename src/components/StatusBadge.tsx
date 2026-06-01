@@ -1,6 +1,6 @@
 'use client';
 
-import { ConnectionStatus } from '@/lib/constants';
+import { ConnectionStatus } from '../lib/constants';
 
 const STATUS_CONFIG: Record<
     ConnectionStatus,
