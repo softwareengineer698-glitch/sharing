@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const session = getSession(sessionId);
+        const session = await getSession(sessionId);
         if (!session) {
             return NextResponse.json(
                 { error: 'Session not found' },
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
         }
 
         signal.timestamp = Date.now();
-        const success = addSignal(sessionId, signal);
+        const success = await addSignal(sessionId, signal);
 
         if (!success) {
             return NextResponse.json(
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session) {
         return NextResponse.json(
             { error: 'Session not found' },
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    const signals = getSignals(sessionId, Number(since || 0), role);
+    const signals = await getSignals(sessionId, Number(since || 0), role);
 
     return NextResponse.json({
         signals,

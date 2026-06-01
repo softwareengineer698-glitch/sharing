@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Check if session already exists
-        const existing = getSession(sessionId);
+        const existing = await getSession(sessionId);
         if (existing) {
             return NextResponse.json(
                 { error: 'Session already exists' },
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const session = createSession(sessionId);
+        const session = await createSession(sessionId);
         return NextResponse.json(
             { session: { id: session.id, status: session.status } },
             { status: 201 }
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session) {
         return NextResponse.json(
             { error: 'Session not found' },
