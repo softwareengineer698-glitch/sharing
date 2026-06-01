@@ -1,113 +1,95 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { PUSHER_KEY, PUSHER_CLUSTER } from '@/lib/constants';
-import PusherJS from 'pusher-js';
+import { StatusBadge } from '@/components/StatusBadge';
 
 export default function SharePage() {
     const [sessionId, setSessionId] = useState<string>('');
     const [status, setStatus] = useState<string>('Ready');
-    const [debug, setDebug] = useState<string[]>([]);
     const [isSharing, setIsSharing] = useState(false);
     const previewRef = useRef<HTMLVideoElement>(null);
+    const pcRef = useRef<RTCPeerConnection | null>(null);
 
-    const log = (msg: string) => setDebug(prev => [...prev.slice(-4), `${new Date().toLocaleTimeString()}: ${msg}`]);
-
-    const handleStartSharing = useCallback(async () => {
-        log('Requesting screen capture...');
+    const startSharing = useCallback(async () => {
         let stream: MediaStream;
         try {
             stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        } catch (err) {
-            log('Capture denied');
-            return;
-        }
+        } catch { return; }
 
-        const newSessionId = uuidv4().slice(0, 8).toUpperCase();
-        setSessionId(newSessionId);
+        const sid = uuidv4().slice(0, 8).toUpperCase();
+        setSessionId(sid);
         setIsSharing(true);
         setStatus('Waiting for Viewer...');
-        log(`Session created: ${newSessionId}`);
 
         if (previewRef.current) previewRef.current.srcObject = stream;
 
         const pc = new RTCPeerConnection({
-            iceServers: [
-                { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-                { urls: 'stun:global.stun.twilio.com:3478' }
-            ]
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }]
         });
+        pcRef.current = pc;
 
         stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-        log('Connecting to signaling network...');
-        const pusher = new PusherJS(PUSHER_KEY, { cluster: PUSHER_CLUSTER });
-        const channel = pusher.subscribe(`session-${newSessionId}`);
-
-        channel.bind('signal', async (data: any) => {
-            if (data.sender === 'viewer') {
-                log(`Received ${data.type} from viewer`);
-                if (data.type === 'join') {
-                    setStatus('Handshaking...');
-                    const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
-                    await fetch('/api/signal', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sessionId: newSessionId, signal: { type: 'offer', data: offer, sender: 'sharer' } }),
-                    });
-                    log('Offer sent to viewer');
-                } else if (data.type === 'answer') {
-                    await pc.setRemoteDescription(new RTCSessionDescription(data.data));
-                    setStatus('Streaming!');
-                    log('Connection established');
-                } else if (data.type === 'candidate') {
-                    try { await pc.addIceCandidate(new RTCIceCandidate(data.data)); } catch (e) { log('ICE error'); }
-                }
-            }
-        });
-
-        pc.onicecandidate = (event) => {
-            if (event.candidate) {
+        pc.onicecandidate = (e) => {
+            if (e.candidate) {
                 fetch('/api/signal', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId: newSessionId, signal: { type: 'candidate', data: event.candidate, sender: 'sharer' } }),
+                    body: JSON.stringify({ sessionId: sid, signal: { type: 'candidate', data: e.candidate, sender: 'sharer' } }),
                 });
             }
         };
 
-        pc.oniceconnectionstatechange = () => {
-            log(`ICE: ${pc.iceConnectionState}`);
-            if (pc.iceConnectionState === 'connected') setStatus('Connected');
-        };
+        // Polling Loop (High Frequency)
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/signal?sessionId=${sid}&role=sharer`);
+                const { signals } = await res.json();
+                for (const s of signals) {
+                    if (s.type === 'join') {
+                        setStatus('Connecting...');
+                        const offer = await pc.createOffer();
+                        await pc.setLocalDescription(offer);
+                        fetch('/api/signal', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionId: sid, signal: { type: 'offer', data: offer, sender: 'sharer' } }),
+                        });
+                    } else if (s.type === 'answer') {
+                        await pc.setRemoteDescription(new RTCSessionDescription(s.data));
+                        setStatus('Streaming!');
+                    } else if (s.type === 'candidate') {
+                        try { await pc.addIceCandidate(new RTCIceCandidate(s.data)); } catch { }
+                    }
+                }
+            } catch { }
+        }, 400);
 
+        return () => {
+            clearInterval(interval);
+            stream.getTracks().forEach(t => t.stop());
+            pc.close();
+        };
     }, []);
 
     return (
-        <div className="min-h-screen bg-black text-white p-6 font-sans">
-            <div className="max-w-xl mx-auto space-y-6">
-                <h1 className="text-2xl font-bold text-center">ScreenShare Pro</h1>
-                <div className="bg-zinc-900 p-4 rounded-lg flex items-center justify-between">
-                    <span className="text-zinc-400">Status:</span>
-                    <span className="font-bold text-cyan-400">{status}</span>
-                </div>
-
+        <div className="min-h-screen bg-zinc-950 text-white p-8 font-sans">
+            <div className="max-w-2xl mx-auto space-y-8">
+                <h1 className="text-4xl font-black text-center text-cyan-500">SHARE SCREEN</h1>
+                <div className="flex justify-center"><div className="bg-zinc-900 px-6 py-2 rounded-full border border-zinc-800 text-lg font-bold">{status}</div></div>
                 {!isSharing ? (
-                    <button onClick={handleStartSharing} className="w-full bg-blue-600 py-4 rounded-xl font-bold text-lg hover:bg-blue-500">START SHARING</button>
+                    <button onClick={startSharing} className="w-full bg-cyan-600 hover:bg-cyan-500 py-6 rounded-2xl font-black text-2xl shadow-xl transition-all active:scale-95">START</button>
                 ) : (
-                    <div className="space-y-4">
-                        <div className="bg-zinc-800 p-3 rounded text-center font-mono text-xl tracking-widest">{sessionId}</div>
-                        <video ref={previewRef} autoPlay playsInline muted className="w-full rounded-lg border border-zinc-700 aspect-video bg-zinc-950" />
+                    <div className="space-y-6">
+                        <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl text-center">
+                            <p className="text-zinc-500 text-sm uppercase mb-2">Join Code</p>
+                            <h2 className="text-5xl font-mono font-bold tracking-tighter">{sessionId}</h2>
+                        </div>
+                        <video ref={previewRef} autoPlay playsInline muted className="w-full rounded-2xl border border-zinc-800 aspect-video bg-black shadow-2xl" />
                     </div>
                 )}
-
-                <div className="bg-zinc-900/50 p-3 rounded text-xs font-mono space-y-1 border border-zinc-800">
-                    <p className="text-zinc-500 uppercase mb-1">Diagnostics:</p>
-                    {debug.map((d, i) => <p key={i}>{d}</p>)}
-                </div>
             </div>
         </div>
     );
-}
+}, []);
