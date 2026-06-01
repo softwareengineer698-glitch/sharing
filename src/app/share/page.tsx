@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ICE_SERVERS } from '@/lib/constants';
+import { ICE_SERVERS } from '../../lib/constants';
 
 export default function SharePage() {
     const [sessionId, setSessionId] = useState<string>('');

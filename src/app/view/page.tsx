@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ICE_SERVERS } from '@/lib/constants';
+import { ICE_SERVERS } from '../../lib/constants';
 
 function ViewerContent() {
     const searchParams = useSearchParams();
