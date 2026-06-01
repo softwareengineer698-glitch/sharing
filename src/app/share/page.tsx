@@ -2,119 +2,111 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ConnectionStatus, PUSHER_KEY, PUSHER_CLUSTER } from '@/lib/constants';
-import { StatusBadge } from '@/components/StatusBadge';
+import { PUSHER_KEY, PUSHER_CLUSTER } from '@/lib/constants';
 import PusherJS from 'pusher-js';
 
 export default function SharePage() {
     const [sessionId, setSessionId] = useState<string>('');
-    const [status, setStatus] = useState<ConnectionStatus>('idle');
-    const [error, setError] = useState<string | null>(null);
+    const [status, setStatus] = useState<string>('Ready');
+    const [debug, setDebug] = useState<string[]>([]);
     const [isSharing, setIsSharing] = useState(false);
     const previewRef = useRef<HTMLVideoElement>(null);
-    const [copied, setCopied] = useState(false);
+
+    const log = (msg: string) => setDebug(prev => [...prev.slice(-4), `${new Date().toLocaleTimeString()}: ${msg}`]);
 
     const handleStartSharing = useCallback(async () => {
+        log('Requesting screen capture...');
         let stream: MediaStream;
         try {
-            stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
-                audio: true,
-            });
+            stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         } catch (err) {
-            setError('Permission denied');
+            log('Capture denied');
             return;
         }
 
         const newSessionId = uuidv4().slice(0, 8).toUpperCase();
         setSessionId(newSessionId);
         setIsSharing(true);
-        setStatus('waiting');
+        setStatus('Waiting for Viewer...');
+        log(`Session created: ${newSessionId}`);
 
-        try {
-            if (previewRef.current) previewRef.current.srcObject = stream;
+        if (previewRef.current) previewRef.current.srcObject = stream;
 
-            const pc = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }],
-            });
+        const pc = new RTCPeerConnection({
+            iceServers: [
+                { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+                { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+        });
 
-            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-            const pusher = new PusherJS(PUSHER_KEY, { cluster: PUSHER_CLUSTER });
-            const channel = pusher.subscribe(`session-${newSessionId}`);
+        log('Connecting to signaling network...');
+        const pusher = new PusherJS(PUSHER_KEY, { cluster: PUSHER_CLUSTER });
+        const channel = pusher.subscribe(`session-${newSessionId}`);
 
-            // SEND OFFER helper
-            const sendOffer = async () => {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                await fetch('/api/signal', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId: newSessionId, signal: { type: 'offer', data: offer, sender: 'sharer' } }),
-                });
-                setStatus('connecting');
-            };
-
-            channel.bind('signal', async (data: any) => {
-                if (data.sender === 'viewer') {
-                    if (data.type === 'join') {
-                        // Viewer just joined! Now send the offer.
-                        await sendOffer();
-                    } else if (data.type === 'answer') {
-                        await pc.setRemoteDescription(new RTCSessionDescription(data.data));
-                        setStatus('connected');
-                    } else if (data.type === 'candidate') {
-                        try { await pc.addIceCandidate(new RTCIceCandidate(data.data)); } catch { }
-                    }
-                }
-            });
-
-            pc.onicecandidate = async (event) => {
-                if (event.candidate) {
+        channel.bind('signal', async (data: any) => {
+            if (data.sender === 'viewer') {
+                log(`Received ${data.type} from viewer`);
+                if (data.type === 'join') {
+                    setStatus('Handshaking...');
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
                     await fetch('/api/signal', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sessionId: newSessionId, signal: { type: 'candidate', data: event.candidate, sender: 'sharer' } }),
+                        body: JSON.stringify({ sessionId: newSessionId, signal: { type: 'offer', data: offer, sender: 'sharer' } }),
                     });
+                    log('Offer sent to viewer');
+                } else if (data.type === 'answer') {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.data));
+                    setStatus('Streaming!');
+                    log('Connection established');
+                } else if (data.type === 'candidate') {
+                    try { await pc.addIceCandidate(new RTCIceCandidate(data.data)); } catch (e) { log('ICE error'); }
                 }
-            };
+            }
+        });
 
-            (window as any).__shareCleanup = () => {
-                pusher.unsubscribe(`session-${newSessionId}`);
-                pusher.disconnect();
-                stream.getTracks().forEach(t => t.stop());
-                pc.close();
-            };
-        } catch (err) {
-            setError('Setup failed');
-            setStatus('failed');
-            setIsSharing(false);
-        }
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                fetch('/api/signal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: newSessionId, signal: { type: 'candidate', data: event.candidate, sender: 'sharer' } }),
+                });
+            }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            log(`ICE: ${pc.iceConnectionState}`);
+            if (pc.iceConnectionState === 'connected') setStatus('Connected');
+        };
+
     }, []);
 
-    const handleCopy = () => {
-        navigator.clipboard.writeText(sessionId);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
     return (
-        <div className="min-h-screen bg-zinc-950 text-white p-8">
-            <div className="max-w-4xl mx-auto text-center">
-                <h1 className="text-4xl font-bold mb-8">Share Screen</h1>
-                <div className="mb-8"><StatusBadge status={status} /></div>
+        <div className="min-h-screen bg-black text-white p-6 font-sans">
+            <div className="max-w-xl mx-auto space-y-6">
+                <h1 className="text-2xl font-bold text-center">ScreenShare Pro</h1>
+                <div className="bg-zinc-900 p-4 rounded-lg flex items-center justify-between">
+                    <span className="text-zinc-400">Status:</span>
+                    <span className="font-bold text-cyan-400">{status}</span>
+                </div>
+
                 {!isSharing ? (
-                    <button onClick={handleStartSharing} className="bg-violet-600 px-8 py-3 rounded-xl font-bold">Start Sharing</button>
+                    <button onClick={handleStartSharing} className="w-full bg-blue-600 py-4 rounded-xl font-bold text-lg hover:bg-blue-500">START SHARING</button>
                 ) : (
-                    <div className="space-y-6">
-                        <div className="bg-zinc-900 p-4 rounded-xl inline-flex items-center gap-4">
-                            <span className="font-mono text-xl">{sessionId}</span>
-                            <button onClick={handleCopy} className="text-sm bg-zinc-800 px-3 py-1 rounded">{copied ? 'Copied' : 'Copy'}</button>
-                        </div>
-                        <video ref={previewRef} autoPlay playsInline muted className="w-full aspect-video bg-black rounded-xl border border-zinc-800" />
-                        <button onClick={() => window.location.reload()} className="text-red-400">Stop</button>
+                    <div className="space-y-4">
+                        <div className="bg-zinc-800 p-3 rounded text-center font-mono text-xl tracking-widest">{sessionId}</div>
+                        <video ref={previewRef} autoPlay playsInline muted className="w-full rounded-lg border border-zinc-700 aspect-video bg-zinc-950" />
                     </div>
                 )}
+
+                <div className="bg-zinc-900/50 p-3 rounded text-xs font-mono space-y-1 border border-zinc-800">
+                    <p className="text-zinc-500 uppercase mb-1">Diagnostics:</p>
+                    {debug.map((d, i) => <p key={i}>{d}</p>)}
+                </div>
             </div>
         </div>
     );
