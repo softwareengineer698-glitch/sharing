@@ -18,10 +18,10 @@ export const ICE_SERVERS: RTCIceServer[] = [
     // },
 ];
 
-export const SIGNALING_POLL_INTERVAL = 1000; // 1s idle
-export const FAST_POLL_INTERVAL = 300; // 0.3s connecting
-export const MAX_RECONNECT_ATTEMPTS = 5;
-export const RECONNECT_DELAY = 1500; // ms
+export const SIGNALING_POLL_INTERVAL = 800; // 0.8s idle
+export const FAST_POLL_INTERVAL = 100; // 0.1s Turbo Mode
+export const MAX_RECONNECT_ATTEMPTS = 10;
+export const RECONNECT_DELAY = 1000; // ms
 
 export type ConnectionStatus =
     | 'idle'

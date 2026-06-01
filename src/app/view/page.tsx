@@ -99,7 +99,7 @@ function ViewerContent() {
 
             // Check immediately, then every 400ms
             pollForSignals();
-            const pollInterval = setInterval(pollForSignals, 400);
+            const pollInterval = setInterval(pollForSignals, 100);
 
             (window as any).__viewCleanup = () => {
                 clearInterval(pollInterval);

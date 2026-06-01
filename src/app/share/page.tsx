@@ -144,7 +144,7 @@ export default function SharePage() {
 
             // Run once immediately, then every interval
             pollForSignals();
-            const pollInterval = setInterval(pollForSignals, 400);
+            const pollInterval = setInterval(pollForSignals, 100);
 
             (window as any).__shareCleanup = () => {
                 clearInterval(pollInterval);
