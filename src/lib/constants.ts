@@ -18,10 +18,14 @@ export const ICE_SERVERS: RTCIceServer[] = [
     // },
 ];
 
-export const SIGNALING_POLL_INTERVAL = 800; // 0.8s idle
-export const FAST_POLL_INTERVAL = 100; // 0.1s Turbo Mode
+export const SIGNALING_POLL_INTERVAL = 1000;
 export const MAX_RECONNECT_ATTEMPTS = 10;
-export const RECONNECT_DELAY = 1000; // ms
+export const RECONNECT_DELAY = 1000;
+
+// Pusher Config (Replace with environment variables for production)
+export const PUSHER_KEY = process.env.NEXT_PUBLIC_PUSHER_KEY || 'ae142f31eb49a8889c8a'; // Demo key
+export const PUSHER_CLUSTER = process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'mt1';
+
 
 export type ConnectionStatus =
     | 'idle'

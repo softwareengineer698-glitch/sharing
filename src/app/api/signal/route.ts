@@ -1,76 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addSignal, getSignals, getSession } from '@/lib/session-store';
-import { SignalMessage } from '@/lib/constants';
+import Pusher from 'pusher';
+import { PUSHER_KEY, PUSHER_CLUSTER } from '@/lib/constants';
 
-// POST: Send a signal message
+// Use environment variables for the secret and app ID
+const pusher = new Pusher({
+    appId: process.env.PUSHER_APP_ID || '1910609', // Demo ID
+    key: PUSHER_KEY,
+    secret: process.env.PUSHER_SECRET || 'f77b7b15d654f15d7f75', // Demo Secret
+    cluster: PUSHER_CLUSTER,
+    useTLS: true,
+});
+
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { sessionId, signal } = body as {
-            sessionId: string;
-            signal: SignalMessage;
-        };
+        const { sessionId, signal } = body;
 
         if (!sessionId || !signal) {
-            return NextResponse.json(
-                { error: 'sessionId and signal are required' },
-                { status: 400 }
-            );
+            return NextResponse.json({ error: 'Missing data' }, { status: 400 });
         }
 
-        const session = await getSession(sessionId);
-        if (!session) {
-            return NextResponse.json(
-                { error: 'Session not found' },
-                { status: 404 }
-            );
-        }
-
-        signal.timestamp = Date.now();
-        const success = await addSignal(sessionId, signal);
-
-        if (!success) {
-            return NextResponse.json(
-                { error: 'Failed to add signal' },
-                { status: 500 }
-            );
-        }
+        // Push the signal to the other person INSTANTLY via WebSockets
+        await pusher.trigger(`session-${sessionId}`, 'signal', {
+            ...signal,
+            timestamp: Date.now()
+        });
 
         return NextResponse.json({ success: true });
-    } catch {
-        return NextResponse.json(
-            { error: 'Failed to process signal' },
-            { status: 500 }
-        );
+    } catch (err) {
+        console.error('Pusher error:', err);
+        return NextResponse.json({ error: 'Failed' }, { status: 500 });
     }
-}
-
-// GET: Poll for new signals
-export async function GET(request: NextRequest) {
-    const { searchParams } = new URL(request.url);
-    const sessionId = searchParams.get('sessionId');
-    const since = searchParams.get('since');
-    const role = searchParams.get('role') as 'sharer' | 'viewer';
-
-    if (!sessionId || !role) {
-        return NextResponse.json(
-            { error: 'sessionId and role query params required' },
-            { status: 400 }
-        );
-    }
-
-    const session = await getSession(sessionId);
-    if (!session) {
-        return NextResponse.json(
-            { error: 'Session not found' },
-            { status: 404 }
-        );
-    }
-
-    const signals = await getSignals(sessionId, Number(since || 0), role);
-
-    return NextResponse.json({
-        signals,
-        sessionStatus: session.status,
-    });
 }
