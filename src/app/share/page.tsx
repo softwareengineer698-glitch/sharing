@@ -90,7 +90,9 @@ export default function SharePage() {
 
                 {!isSharing ? (
                     <div className="bg-zinc-900 p-8 rounded-3xl border border-zinc-800 space-y-6">
-                        <div className="bg-black p-4 rounded-xl border border-zinc-800 text-sm font-mono text-zinc-500 break-all">{window.location.origin}/view?session={sessionId}</div>
+                        <div className="bg-black p-4 rounded-xl border border-zinc-800 text-sm font-mono text-zinc-500 break-all">
+                            {typeof window !== 'undefined' ? `${window.location.origin}/view?session=${sessionId}` : '...'}
+                        </div>
                         <button onClick={startSharing} className="w-full bg-cyan-600 py-6 rounded-2xl font-black text-2xl shadow-2xl hover:bg-cyan-500 transition-colors">GO LIVE INSTANTLY</button>
                     </div>
                 ) : (
