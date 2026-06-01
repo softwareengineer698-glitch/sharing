@@ -14,11 +14,23 @@ import { Session, SignalMessage } from './constants';
 import { kv } from '@vercel/kv';
 
 /**
- * Persists session data to Vercel KV (Redis).
- * This allows multiple serverless instances to share the same session data.
+ * Hybrid Store: Uses Vercel KV if configured, otherwise falls back to memory.
+ * This ensures the app "just works" locally and on Vercel even without setup.
  */
 
-const SESSION_TTL = 3600; // 1 hour in seconds
+const SESSION_TTL = 3600; // 1 hour
+
+// Memory Fallback
+const memoryStore = globalThis as typeof globalThis & {
+    __sessions?: Map<string, Session>;
+};
+if (!memoryStore.__sessions) {
+    memoryStore.__sessions = new Map<string, Session>();
+}
+const sessions = memoryStore.__sessions;
+
+// Helper to check if KV is actually configured
+const isKVEnabled = () => !!process.env.KV_REST_API_URL;
 
 export async function createSession(id: string): Promise<Session> {
     const session: Session = {
@@ -29,12 +41,29 @@ export async function createSession(id: string): Promise<Session> {
         status: 'waiting',
     };
 
-    await kv.set(`session:${id}`, session, { ex: SESSION_TTL });
+    if (isKVEnabled()) {
+        try {
+            await kv.set(`session:${id}`, session, { ex: SESSION_TTL });
+            return session;
+        } catch (e) {
+            console.warn("KV Storage failed, falling back to memory:", e);
+        }
+    }
+
+    sessions.set(id, session);
     return session;
 }
 
 export async function getSession(id: string): Promise<Session | null> {
-    return await kv.get<Session>(`session:${id}`);
+    if (isKVEnabled()) {
+        try {
+            const data = await kv.get<Session>(`session:${id}`);
+            if (data) return data;
+        } catch (e) {
+            console.warn("KV Retrieval failed:", e);
+        }
+    }
+    return sessions.get(id) || null;
 }
 
 export async function addSignal(sessionId: string, signal: SignalMessage): Promise<boolean> {
@@ -44,7 +73,14 @@ export async function addSignal(sessionId: string, signal: SignalMessage): Promi
     session.signals.push(signal);
     session.lastActivity = Date.now();
 
-    await kv.set(`session:${sessionId}`, session, { ex: SESSION_TTL });
+    if (isKVEnabled()) {
+        try {
+            await kv.set(`session:${sessionId}`, session, { ex: SESSION_TTL });
+            return true;
+        } catch { /* fallback to memory below */ }
+    }
+
+    sessions.set(sessionId, session);
     return true;
 }
 
@@ -56,11 +92,16 @@ export async function getSignals(
     const session = await getSession(sessionId);
     if (!session) return [];
 
-    // Update activity timestamp
     session.lastActivity = Date.now();
-    await kv.set(`session:${sessionId}`, session, { ex: SESSION_TTL });
 
-    // Return signals from the OTHER sender that are newer than 'since'
+    if (isKVEnabled()) {
+        try {
+            await kv.set(`session:${sessionId}`, session, { ex: SESSION_TTL });
+        } catch { /* ignore and continue */ }
+    } else {
+        sessions.set(sessionId, session);
+    }
+
     return session.signals.filter(
         (s) => s.sender !== sender && s.timestamp > since
     );
@@ -76,11 +117,22 @@ export async function updateSessionStatus(
     session.status = status;
     session.lastActivity = Date.now();
 
-    await kv.set(`session:${sessionId}`, session, { ex: SESSION_TTL });
+    if (isKVEnabled()) {
+        try {
+            await kv.set(`session:${sessionId}`, session, { ex: SESSION_TTL });
+            return true;
+        } catch { }
+    }
+
+    sessions.set(sessionId, session);
     return true;
 }
 
 export async function deleteSession(sessionId: string): Promise<boolean> {
-    const deleted = await kv.del(`session:${sessionId}`);
-    return deleted > 0;
+    if (isKVEnabled()) {
+        try {
+            await kv.del(`session:${sessionId}`);
+        } catch { }
+    }
+    return sessions.delete(sessionId);
 }
