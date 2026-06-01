@@ -8,7 +8,7 @@ import {
     SIGNALING_POLL_INTERVAL,
     MAX_RECONNECT_ATTEMPTS,
     RECONNECT_DELAY,
-} from '@/lib/constants';
+} from '../lib/constants';
 
 type UseWebRTCOptions = {
     sessionId: string;
