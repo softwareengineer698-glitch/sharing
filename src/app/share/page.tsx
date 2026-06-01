@@ -23,7 +23,7 @@ export default function SharePage() {
         try {
             // 1. Capture screen IMMEDIATELY
             stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: "always" },
+                video: { cursor: "always" } as any,
                 audio: true
             });
 
